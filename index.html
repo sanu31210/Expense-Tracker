@@ -17,7 +17,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js" defer></script>
 
 <!-- Firebase (free Spark plan: Auth + Firestore) — powers cross-device sync -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -321,13 +321,19 @@ function pushCloud() {
 /* ---------- Auth ---------- */
 function signInGoogle() {
   const provider = new firebase.auth.GoogleAuthProvider();
-  auth.signInWithRedirect(provider);
+  auth.signInWithPopup(provider).catch((err) => {
+    console.error("Sign-in error:", err);
+    if (err.code === "auth/popup-blocked") {
+      alert("Your browser blocked the sign-in popup. Please allow popups for this site and try again.");
+    } else if (err.code !== "auth/cancelled-popup-request" && err.code !== "auth/popup-closed-by-user") {
+      alert("Sign-in failed: " + (err.message || err.code || "unknown error"));
+    }
+  });
 }
 function signOutUser() {
   if (unsubscribeSnapshot) { unsubscribeSnapshot(); unsubscribeSnapshot = null; }
   auth.signOut();
 }
-auth.getRedirectResult().catch((e) => console.error("Redirect sign-in error:", e));
 auth.onAuthStateChanged((user) => {
   currentUser = user;
   if (user) subscribeCloud();
