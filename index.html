@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<title>Ledger — Expense Tracker</title>
+
+<!-- PWA / Home screen support (Android + iOS) -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#1C1F1A" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Ledger" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="icon" href="icon-192.png" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js" defer></script>
+
+<!-- Firebase (free Spark plan: Auth + Firestore) — powers cross-device sync -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<style>
+  :root {
+    --paper: #EFEDE4;
+    --paper-raised: #F7F5EC;
+    --ink: #1C1F1A;
+    --ink-soft: #4B4A3F;
+    --rule: #D3CDB9;
+    --forest: #2E5D45;
+    --brick: #A63B2E;
+    --brass: #B08A3E;
+    --slate: #6B6656;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  }
+  body { -webkit-tap-highlight-color: transparent; }
+  #app {
+    background: var(--paper);
+    color: var(--ink);
+    max-width: 480px;
+    margin: 0 auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .display { font-family: "Fraunces", Georgia, serif; }
+
+  .scroll { flex: 1; overflow-y: auto; padding: calc(20px + env(safe-area-inset-top)) 18px 100px; }
+
+  .hero {
+    background: var(--ink); color: var(--paper);
+    border-radius: 4px; padding: 20px 20px 18px; margin-bottom: 22px;
+    position: relative; overflow: hidden;
+  }
+  .month-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .month-nav button {
+    background: rgba(239,237,228,0.1); border: none; color: var(--paper);
+    width: 30px; height: 30px; border-radius: 3px;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+  .month-nav button:active { background: rgba(239,237,228,0.2); }
+  .month-label { font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(239,237,228,0.75); }
+  .hero-label { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(239,237,228,0.6); margin-bottom: 4px; }
+  .hero-amount { font-size: 40px; font-weight: 500; line-height: 1; }
+  .hero-amount.neg { color: #E8A79C; }
+  .hero-sub { display: flex; gap: 18px; margin-top: 14px; font-size: 13px; }
+  .hero-sub div span:first-child { display: block; color: rgba(239,237,228,0.55); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 2px; }
+  .hero-sub div span:last-child { font-size: 15px; }
+
+  .section-title {
+    font-family: "Fraunces", Georgia, serif; font-size: 15px; font-weight: 600;
+    margin: 0 0 10px; display: flex; align-items: center; justify-content: space-between;
+  }
+  .section-title .link {
+    font-family: "IBM Plex Sans", sans-serif; font-size: 12px; font-weight: 500;
+    color: var(--forest); cursor: pointer; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+
+  .card { background: var(--paper-raised); border: 1px solid var(--rule); border-radius: 4px; padding: 14px 16px; margin-bottom: 20px; }
+
+  .row { display: flex; align-items: baseline; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--rule); }
+  .row:last-child { border-bottom: none; }
+  .row-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+  .row-sub { color: var(--slate); font-size: 12px; }
+  .row-leader { flex: 1; min-width: 10px; border-bottom: 2px dotted var(--rule); margin-bottom: 4px; }
+  .row-amount { font-size: 14px; font-weight: 500; white-space: nowrap; }
+
+  .empty { text-align: center; padding: 32px 16px; color: var(--slate); }
+  .empty-title { font-family: "Fraunces", Georgia, serif; font-size: 16px; color: var(--ink); margin-bottom: 4px; }
+  .empty p { font-size: 13px; margin: 0; }
+
+  .tag { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--slate); }
+  .tag::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--tag-color); }
+
+  .txn-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--rule); }
+  .txn-item:last-child { border-bottom: none; }
+  .txn-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .txn-main { flex: 1; min-width: 0; }
+  .txn-note { font-size: 14px; }
+  .txn-meta { font-size: 11px; color: var(--slate); margin-top: 1px; }
+  .txn-amount { font-size: 14px; font-weight: 500; white-space: nowrap; }
+  .txn-amount.income { color: var(--forest); }
+  .icon-btn { background: none; border: none; color: var(--slate); padding: 6px; cursor: pointer; display: flex; }
+  .icon-btn:active { color: var(--brick); }
+
+  .budget-row { margin-bottom: 16px; }
+  .budget-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; margin-bottom: 6px; }
+  .budget-input {
+    width: 84px; text-align: right; border: 1px solid var(--rule); background: var(--paper);
+    border-radius: 3px; padding: 4px 6px; font-family: "IBM Plex Mono", monospace; font-size: 13px; color: var(--ink);
+  }
+  .progress-track { height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 3px; }
+  .budget-remaining { font-size: 11px; color: var(--slate); margin-top: 4px; }
+
+  .recurring-item { border: 1px solid var(--rule); border-radius: 4px; padding: 12px; margin-bottom: 10px; background: var(--paper-raised); }
+  .recurring-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .recurring-name { font-size: 14px; font-weight: 500; }
+  .recurring-due { font-size: 11px; color: var(--slate); margin-top: 2px; }
+  .recurring-amount { font-family: "IBM Plex Mono", monospace; font-size: 15px; font-weight: 500; }
+  .recurring-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+  .btn-paid { font-size: 12px; border: 1px solid var(--forest); color: var(--forest); background: none; border-radius: 3px; padding: 5px 10px; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  .btn-paid.done { background: var(--forest); color: var(--paper-raised); }
+
+  .nav {
+    position: sticky; bottom: 0; background: var(--paper-raised); border-top: 1px solid var(--rule);
+    display: flex; padding: 8px 6px calc(8px + env(safe-area-inset-bottom));
+  }
+  .nav-btn {
+    flex: 1; background: none; border: none; display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 6px 0; color: var(--slate); cursor: pointer; font-size: 10px; letter-spacing: 0.03em; text-transform: uppercase;
+  }
+  .nav-btn.active { color: var(--forest); }
+  .nav-btn svg { width: 19px; height: 19px; }
+
+  .fab {
+    position: fixed; right: calc(18px + (100vw - 480px) / 2); bottom: calc(78px + env(safe-area-inset-bottom));
+    width: 52px; height: 52px; border-radius: 50%; background: var(--forest); color: var(--paper-raised);
+    border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 14px rgba(28,31,26,0.28);
+    cursor: pointer; z-index: 5;
+  }
+  @media (max-width: 480px) { .fab { right: 18px; } }
+  .fab:active { background: #244A38; }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(28,31,26,0.5); display: flex; align-items: flex-end; z-index: 20; }
+  .modal {
+    background: var(--paper); width: 100%; max-width: 480px; margin: 0 auto; border-radius: 12px 12px 0 0;
+    padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); max-height: 88vh; overflow-y: auto;
+  }
+  .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .modal-title { font-family: "Fraunces", Georgia, serif; font-size: 18px; font-weight: 600; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--slate); margin-bottom: 5px; }
+  .field input, .field select {
+    width: 100%; border: 1px solid var(--rule); background: var(--paper-raised); border-radius: 4px;
+    padding: 10px 11px; font-size: 14px; font-family: "IBM Plex Sans", sans-serif; color: var(--ink);
+  }
+  .field input.mono { font-family: "IBM Plex Mono", monospace; }
+  .type-toggle { display: flex; gap: 8px; }
+  .type-toggle button { flex: 1; padding: 9px; border: 1px solid var(--rule); background: var(--paper-raised); border-radius: 4px; font-size: 13px; cursor: pointer; color: var(--ink-soft); }
+  .type-toggle button.active.expense { background: var(--brick); border-color: var(--brick); color: var(--paper-raised); }
+  .type-toggle button.active.income { background: var(--forest); border-color: var(--forest); color: var(--paper-raised); }
+  .cat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .cat-chip { border: 1px solid var(--rule); background: var(--paper-raised); border-radius: 4px; padding: 8px 4px; font-size: 10.5px; text-align: center; cursor: pointer; color: var(--ink-soft); line-height: 1.25; }
+  .cat-chip.active { border-color: var(--forest); background: rgba(46,93,69,0.1); color: var(--ink); font-weight: 500; }
+  .submit-btn { width: 100%; background: var(--ink); color: var(--paper); border: none; border-radius: 4px; padding: 13px; font-size: 14px; font-weight: 500; margin-top: 6px; cursor: pointer; }
+  .submit-btn[disabled] { opacity: 0.5; }
+  .chart-wrap { display: flex; align-items: center; gap: 16px; }
+  .legend { flex: 1; display: flex; flex-direction: column; gap: 7px; }
+  .legend-item { display: flex; justify-content: space-between; font-size: 12px; }
+  .legend-left { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  .boot-loading {
+    min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+    color: var(--paper); background: var(--ink); font-size: 13px; letter-spacing: 0.05em; text-transform: uppercase;
+  }
+  .signin-wrap {
+    min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: var(--ink); color: var(--paper); padding: 32px 28px; text-align: center;
+  }
+  .signin-mark {
+    width: 56px; height: 56px; border-radius: 50%; border: 1.5px solid var(--brass);
+    display: flex; align-items: center; justify-content: center; font-family: "IBM Plex Mono", monospace;
+    font-size: 24px; margin-bottom: 18px; color: var(--paper);
+  }
+  .signin-title { font-family: "Fraunces", Georgia, serif; font-size: 24px; font-weight: 600; margin-bottom: 8px; }
+  .signin-sub { font-size: 13px; color: rgba(239,237,228,0.6); margin-bottom: 30px; max-width: 280px; line-height: 1.5; }
+  .google-btn {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    background: var(--paper-raised); color: var(--ink); border: none; border-radius: 4px;
+    padding: 13px 22px; font-size: 14px; font-weight: 500; cursor: pointer; width: 100%; max-width: 280px;
+  }
+  .google-btn:active { background: #E9E6DA; }
+  .signin-note { font-size: 11px; color: rgba(239,237,228,0.4); margin-top: 22px; max-width: 280px; line-height: 1.5; }
+  .topbar {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;
+    font-size: 11px; color: var(--slate);
+  }
+  .topbar .link { color: var(--forest); font-weight: 500; cursor: pointer; text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px; }
+  .sync-note { font-size: 10px; color: var(--slate); text-align: center; padding: 4px 0 0; }
+</style>
+</head>
+<body>
+<div id="app"><div class="boot-loading">Loading…</div></div>
+
+<script>
+/* =====================================================================
+   FIREBASE SETUP — replace with YOUR OWN project's config.
+   Get this from: Firebase console → Project settings → General →
+   "Your apps" → Web app → SDK setup and configuration → Config.
+   These values are safe to keep in public client-side code; access is
+   controlled by the Firestore security rules, not by hiding this config.
+===================================================================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyCi-Ot9bKDEQ339DYdQnfRGl--ZSDpItsk",
+  authDomain: "ledger-app-c192f.firebaseapp.com",
+  projectId: "ledger-app-c192f",
+  storageBucket: "ledger-app-c192f.firebasestorage.app",
+  messagingSenderId: "514451745153",
+  appId: "1:514451745153:web:ac3610af81bd9ef1566080"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+try { db.enablePersistence({ synchronizeTabs: true }); } catch (e) {}
+
+let currentUser = null;
+let unsubscribeSnapshot = null;
+let cloudSyncStatus = "idle"; // idle | syncing | synced | error
+
+/* ---------- Data ---------- */
+const STORAGE_KEY = "expense-tracker-ledger-v1";
+const DEFAULT_CATEGORIES = [
+  { id: "food", name: "Food & Dining", color: "#2E5D45" },
+  { id: "transport", name: "Transport", color: "#3D6B8A" },
+  { id: "housing", name: "Housing", color: "#8A5A2E" },
+  { id: "utilities", name: "Utilities", color: "#6B6656" },
+  { id: "entertainment", name: "Entertainment", color: "#7A3D6B" },
+  { id: "health", name: "Health", color: "#A63B2E" },
+  { id: "shopping", name: "Shopping", color: "#B08A3E" },
+  { id: "other", name: "Other", color: "#4A4A44" },
+];
+
+let data = loadLocalCache();
+let ui = {
+  tab: "overview",
+  selectedMonth: monthKey(todayISO()),
+  showAddTxn: false,
+  showAddRecurring: false,
+  txnDraft: { type: "expense", amount: "", category: DEFAULT_CATEGORIES[0].id, note: "", date: todayISO() },
+  recurringDraft: { name: "", amount: "", category: DEFAULT_CATEGORIES[0].id, day: "1" },
+};
+let donutChart = null, trendChart = null;
+
+function loadLocalCache() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return { categories: DEFAULT_CATEGORIES, transactions: [], budgets: {}, recurring: [], ...JSON.parse(raw) };
+  } catch (e) {}
+  return { categories: DEFAULT_CATEGORIES, transactions: [], budgets: {}, recurring: [] };
+}
+function saveLocalCache() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
+  catch (e) { console.error("Could not save local cache:", e); }
+}
+
+/* ---------- Cloud sync (Firestore) ---------- */
+function userDocRef() {
+  return db.collection("users").doc(currentUser.uid).collection("ledger").doc("data");
+}
+function subscribeCloud() {
+  if (unsubscribeSnapshot) unsubscribeSnapshot();
+  cloudSyncStatus = "syncing"; render();
+  unsubscribeSnapshot = userDocRef().onSnapshot(
+    (snap) => {
+      if (snap.exists) {
+        const d = snap.data();
+        data = { categories: DEFAULT_CATEGORIES, transactions: d.transactions || [], budgets: d.budgets || {}, recurring: d.recurring || [] };
+      } else {
+        // first sign-in on this account — seed the cloud doc with whatever's on this device already
+        userDocRef().set({ transactions: data.transactions, budgets: data.budgets, recurring: data.recurring }).catch(() => {});
+      }
+      cloudSyncStatus = "synced";
+      saveLocalCache();
+      render();
+    },
+    (err) => {
+      console.error("Sync error:", err);
+      cloudSyncStatus = "error";
+      render();
+    }
+  );
+}
+let pushTimer = null;
+function pushCloud() {
+  saveLocalCache();
+  if (!currentUser) return;
+  cloudSyncStatus = "syncing";
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => {
+    userDocRef()
+      .set({ transactions: data.transactions, budgets: data.budgets, recurring: data.recurring })
+      .then(() => { cloudSyncStatus = "synced"; render(); })
+      .catch((e) => { console.error("Sync error:", e); cloudSyncStatus = "error"; render(); });
+  }, 400);
+}
+
+/* ---------- Auth ---------- */
+function signInGoogle() {
+  const provider = new firebase.auth.GoogleAuthProvider();
+  auth.signInWithRedirect(provider);
+}
+function signOutUser() {
+  if (unsubscribeSnapshot) { unsubscribeSnapshot(); unsubscribeSnapshot = null; }
+  auth.signOut();
+}
+auth.getRedirectResult().catch((e) => console.error("Redirect sign-in error:", e));
+auth.onAuthStateChanged((user) => {
+  currentUser = user;
+  if (user) subscribeCloud();
+  render();
+});
+
+/* ---------- Helpers ---------- */
+function todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function monthKey(dateStr) { return dateStr.slice(0,7); }
+function fmt(n) {
+  const val = Number.isFinite(n) ? n : 0;
+  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(val);
+}
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function monthLabel(key) {
+  const [y,m] = key.split("-").map(Number);
+  return new Date(y, m-1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+function shortMonthLabel(key) {
+  const [y,m] = key.split("-").map(Number);
+  return new Date(y, m-1, 1).toLocaleDateString("en-US", { month: "short" });
+}
+function shiftMonth(key, delta) {
+  const [y,m] = key.split("-").map(Number);
+  const d = new Date(y, m-1+delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+}
+function lastNMonthKeys(n, endKey) {
+  const out = []; let k = endKey;
+  for (let i=0;i<n;i++) { out.unshift(k); k = shiftMonth(k,-1); }
+  return out;
+}
+function nextDueDate(day) {
+  const now = new Date();
+  const thisMonth = new Date(now.getFullYear(), now.getMonth(), day);
+  if (thisMonth >= new Date(now.getFullYear(), now.getMonth(), now.getDate())) return thisMonth;
+  return new Date(now.getFullYear(), now.getMonth()+1, day);
+}
+function catById(id) { return data.categories.find(c => c.id === id); }
+function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+
+/* ---------- Icons (inline SVG, stroke style) ---------- */
+const ICONS = {
+  wallet: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>`,
+  receipt: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>`,
+  pie: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>`,
+  repeat: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>`,
+  plus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>`,
+  x: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`,
+  chevronLeft: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>`,
+  chevronRight: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>`,
+  trash: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6h16Z"/></svg>`,
+  check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`,
+};
+
+/* ---------- Derived state ---------- */
+function getMonthTxns(monthK) { return data.transactions.filter(t => monthKey(t.date) === monthK); }
+function getCategorySpend(monthK) {
+  const txns = getMonthTxns(monthK).filter(t => t.type === "expense");
+  const map = {};
+  txns.forEach(t => { map[t.category] = (map[t.category]||0) + t.amount; });
+  return data.categories
+    .map(c => ({ id: c.id, name: c.name, color: c.color, value: map[c.id]||0 }))
+    .filter(c => c.value > 0)
+    .sort((a,b) => b.value - a.value);
+}
+function getTrendData(monthK) {
+  const keys = lastNMonthKeys(6, monthK);
+  return keys.map(k => {
+    const total = data.transactions.filter(t => t.type === "expense" && monthKey(t.date) === k).reduce((s,t)=>s+t.amount,0);
+    return { month: shortMonthLabel(k), total };
+  });
+}
+function isPaidThisRealMonth(recurringId) {
+  const cur = monthKey(todayISO());
+  return data.transactions.some(t => t.recurringId === recurringId && monthKey(t.date) === cur);
+}
+
+/* ---------- Mutations ---------- */
+function addTransaction(txn) { data.transactions.push({ id: uid(), ...txn }); pushCloud(); }
+function deleteTransaction(id) { data.transactions = data.transactions.filter(t => t.id !== id); pushCloud(); render(); }
+function setBudget(catId, val) { data.budgets[catId] = val === "" ? "" : Number(val); pushCloud(); render(); }
+function addRecurring(r) { data.recurring.push({ id: uid(), ...r }); pushCloud(); }
+function deleteRecurring(id) { data.recurring = data.recurring.filter(r => r.id !== id); pushCloud(); render(); }
+function markRecurringPaid(r) {
+  addTransaction({ date: todayISO(), amount: r.amount, category: r.category, note: r.name, type: "expense", recurringId: r.id });
+  render();
+}
+
+/* ---------- Actions exposed to inline handlers ---------- */
+function setTab(t) { ui.tab = t; render(); }
+function changeMonth(delta) { ui.selectedMonth = shiftMonth(ui.selectedMonth, delta); render(); }
+function openAddTxn() {
+  ui.txnDraft = { type: "expense", amount: "", category: data.categories[0].id, note: "", date: todayISO() };
+  ui.showAddTxn = true; render();
+}
+function closeAddTxn() { ui.showAddTxn = false; render(); }
+function setTxnType(t) { ui.txnDraft.type = t; render(); }
+function setTxnCategory(c) { ui.txnDraft.category = c; render(); }
+function updateTxnField(field, val) { ui.txnDraft[field] = val; }
+function submitTxn() {
+  const amt = Number(ui.txnDraft.amount);
+  if (!(amt > 0)) return;
+  addTransaction({
+    type: ui.txnDraft.type,
+    amount: amt,
+    category: ui.txnDraft.type === "expense" ? ui.txnDraft.category : "other",
+    note: ui.txnDraft.note.trim(),
+    date: ui.txnDraft.date,
+  });
+  ui.showAddTxn = false; render();
+}
+function openAddRecurring() {
+  ui.recurringDraft = { name: "", amount: "", category: data.categories[0].id, day: "1" };
+  ui.showAddRecurring = true; render();
+}
+function closeAddRecurring() { ui.showAddRecurring = false; render(); }
+function setRecurringCategory(c) { ui.recurringDraft.category = c; render(); }
+function updateRecurringField(field, val) { ui.recurringDraft[field] = val; }
+function submitRecurring() {
+  const amt = Number(ui.recurringDraft.amount);
+  const day = Number(ui.recurringDraft.day);
+  if (!(ui.recurringDraft.name.trim()) || !(amt > 0) || !(day >= 1 && day <= 28)) return;
+  addRecurring({ name: ui.recurringDraft.name.trim(), amount: amt, category: ui.recurringDraft.category, day });
+  ui.showAddRecurring = false; render();
+}
+
+/* ---------- Render ---------- */
+function signInScreenHTML() {
+  return `
+    <div class="signin-wrap">
+      <div class="signin-mark mono">₹</div>
+      <div class="signin-title">Ledger</div>
+      <div class="signin-sub">Sign in to save your expenses to your account and keep them in sync across your phone and other devices.</div>
+      <button class="google-btn" onclick="signInGoogle()">
+        <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.6 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.6 15.9 18.9 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.5 0 10.4-1.9 14.3-5.1l-6.6-5.4C29.6 35.4 26.9 36 24 36c-5.3 0-9.7-3.4-11.3-8.1l-6.6 5.1C9.6 39.6 16.3 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.2 5.7l6.6 5.4C40.9 36.6 44 30.9 44 24c0-1.3-.1-2.7-.4-3.5z"/></svg>
+        Sign in with Google
+      </button>
+      <div class="signin-note">Your data is stored under your own Google account and never shared with anyone else.</div>
+    </div>`;
+}
+
+function render() {
+  if (!currentUser) {
+    document.getElementById("app").innerHTML = signInScreenHTML();
+    return;
+  }
+
+  const monthK = ui.selectedMonth;
+  const monthTxns = getMonthTxns(monthK);
+  const spent = monthTxns.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
+  const income = monthTxns.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
+  const budgetTotal = Object.values(data.budgets).reduce((s,v)=>s+(Number(v)||0),0);
+  const hasBudgets = budgetTotal > 0;
+  const safeToSpend = budgetTotal - spent;
+  const categorySpend = getCategorySpend(monthK);
+  const recentTxns = [...monthTxns].sort((a,b)=> a.date < b.date ? 1 : a.date > b.date ? -1 : 0).slice(0,6);
+  const allSorted = [...monthTxns].sort((a,b)=> a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
+  const upcomingRecurring = [...data.recurring].map(r => ({ ...r, due: nextDueDate(r.day) })).sort((a,b)=>a.due-b.due);
+
+  const syncLabel = { idle: "", syncing: "Syncing…", synced: "Synced", error: "Sync paused — offline" }[cloudSyncStatus] || "";
+
+  let html = `
+    <div class="scroll">
+      <div class="topbar">
+        <span>${esc(currentUser.email || "Signed in")}</span>
+        <span class="link" onclick="signOutUser()">Sign out</span>
+      </div>
+      <div class="hero">
+        <div class="month-nav">
+          <button onclick="changeMonth(-1)" aria-label="Previous month">${ICONS.chevronLeft}</button>
+          <span class="month-label">${esc(monthLabel(monthK))}</span>
+          <button onclick="changeMonth(1)" aria-label="Next month">${ICONS.chevronRight}</button>
+        </div>
+        <div class="hero-label">${hasBudgets ? "Safe to spend" : "Spent this month"}</div>
+        <div class="hero-amount mono ${hasBudgets && safeToSpend < 0 ? "neg" : ""}">${hasBudgets ? fmt(safeToSpend) : fmt(spent)}</div>
+        <div class="hero-sub">
+          <div><span>Spent</span><span class="mono">${fmt(spent)}</span></div>
+          <div><span>Income</span><span class="mono">${fmt(income)}</span></div>
+          ${hasBudgets ? `<div><span>Budgeted</span><span class="mono">${fmt(budgetTotal)}</span></div>` : ""}
+        </div>
+      </div>
+      ${syncLabel ? `<div class="sync-note">${syncLabel}</div>` : ""}
+  `;
+
+  if (ui.tab === "overview") {
+    html += `
+      <div class="section-title">Where it went ${categorySpend.length ? `<span class="link" onclick="setTab('budgets')">Budgets</span>` : ""}</div>
+      <div class="card">
+        ${categorySpend.length === 0 ? `
+          <div class="empty"><div class="empty-title">Nothing logged yet</div><p>Add an expense and this month's breakdown will show up here.</p></div>
+        ` : `
+          <div class="chart-wrap">
+            <div style="width:110px;height:110px;flex-shrink:0;"><canvas id="donutCanvas"></canvas></div>
+            <div class="legend">
+              ${categorySpend.slice(0,5).map(c => `
+                <div class="legend-item">
+                  <span class="legend-left"><span class="legend-dot" style="background:${c.color}"></span>${esc(c.name)}</span>
+                  <span class="mono">${fmt(c.value)}</span>
+                </div>`).join("")}
+            </div>
+          </div>
+        `}
+      </div>
+
+      <div class="section-title">Last 6 months</div>
+      <div class="card"><div style="width:100%;height:120px;"><canvas id="trendCanvas"></canvas></div></div>
+
+      <div class="section-title">Recent entries ${recentTxns.length ? `<span class="link" onclick="setTab('transactions')">See all</span>` : ""}</div>
+      <div class="card">
+        ${recentTxns.length === 0 ? `
+          <div class="empty"><div class="empty-title">The ledger is empty</div><p>Tap the + button to log your first expense.</p></div>
+        ` : recentTxns.map(t => txnItemHTML(t, false)).join("")}
+      </div>
+
+      ${upcomingRecurring.length > 0 ? `
+        <div class="section-title">Standing orders <span class="link" onclick="setTab('recurring')">Manage</span></div>
+        <div class="card">
+          ${upcomingRecurring.slice(0,3).map(r => `
+            <div class="row">
+              <span class="row-label">${esc(r.name)}</span>
+              <span class="row-leader"></span>
+              <span class="row-amount mono">${fmt(r.amount)}</span>
+            </div>`).join("")}
+        </div>
+      ` : ""}
+    `;
+  } else if (ui.tab === "transactions") {
+    html += `
+      <div class="section-title">${esc(monthLabel(monthK))} ledger</div>
+      <div class="card">
+        ${allSorted.length === 0 ? `
+          <div class="empty"><div class="empty-title">No entries this month</div><p>Tap + to add an expense or income entry.</p></div>
+        ` : allSorted.map(t => txnItemHTML(t, true)).join("")}
+      </div>
+    `;
+  } else if (ui.tab === "budgets") {
+    html += `
+      <div class="section-title">Monthly budgets</div>
+      <div class="card">
+        ${data.categories.map(c => {
+          const budget = Number(data.budgets[c.id]) || 0;
+          const spentC = (categorySpend.find(cs=>cs.id===c.id)||{}).value || 0;
+          const pct = budget > 0 ? Math.min(100, (spentC/budget)*100) : 0;
+          const over = budget > 0 && spentC > budget;
+          return `
+            <div class="budget-row">
+              <div class="budget-top">
+                <span class="tag" style="--tag-color:${c.color}">${esc(c.name)}</span>
+                <input class="budget-input mono" type="number" inputmode="decimal" placeholder="0"
+                  value="${data.budgets[c.id] ?? ""}" onchange="setBudget('${c.id}', this.value)" />
+              </div>
+              ${budget > 0 ? `
+                <div class="progress-track"><div class="progress-fill" style="width:${pct}%;background:${over ? "var(--brick)" : c.color}"></div></div>
+                <div class="budget-remaining">${fmt(spentC)} of ${fmt(budget)} ${over ? `· ${fmt(spentC-budget)} over` : `· ${fmt(budget-spentC)} left`}</div>
+              ` : ""}
+            </div>`;
+        }).join("")}
+      </div>
+    `;
+  } else if (ui.tab === "recurring") {
+    html += `
+      <div class="section-title">Standing orders <span class="link" onclick="openAddRecurring()">+ Add</span></div>
+      ${upcomingRecurring.length === 0 ? `
+        <div class="card"><div class="empty"><div class="empty-title">No recurring bills yet</div><p>Add rent, subscriptions, or anything that repeats monthly.</p></div></div>
+      ` : upcomingRecurring.map(r => {
+        const paid = isPaidThisRealMonth(r.id);
+        const cat = catById(r.category);
+        return `
+          <div class="recurring-item">
+            <div class="recurring-top">
+              <div>
+                <div class="recurring-name">${esc(r.name)}</div>
+                <div class="recurring-due">
+                  <span class="tag" style="--tag-color:${cat.color}">${esc(cat.name)}</span>
+                  · due ${r.due.toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+                </div>
+              </div>
+              <span class="recurring-amount mono">${fmt(r.amount)}</span>
+            </div>
+            <div class="recurring-actions">
+              <button class="icon-btn" onclick="deleteRecurring('${r.id}')" aria-label="Remove">${ICONS.trash}</button>
+              <button class="btn-paid ${paid ? "done" : ""}" ${paid ? "disabled" : `onclick="markRecurringPaid(${JSON.stringify(r).replace(/"/g,'&quot;')})"`}>
+                ${ICONS.check}${paid ? "Logged this month" : "Mark paid"}
+              </button>
+            </div>
+          </div>`;
+      }).join("")}
+    `;
+  }
+
+  html += `</div>
+
+    <button class="fab" onclick="openAddTxn()" aria-label="Add entry">${ICONS.plus}</button>
+
+    <nav class="nav">
+      <button class="nav-btn ${ui.tab==='overview'?'active':''}" onclick="setTab('overview')">${ICONS.wallet}<span>Overview</span></button>
+      <button class="nav-btn ${ui.tab==='transactions'?'active':''}" onclick="setTab('transactions')">${ICONS.receipt}<span>Ledger</span></button>
+      <button class="nav-btn ${ui.tab==='budgets'?'active':''}" onclick="setTab('budgets')">${ICONS.pie}<span>Budgets</span></button>
+      <button class="nav-btn ${ui.tab==='recurring'?'active':''}" onclick="setTab('recurring')">${ICONS.repeat}<span>Recurring</span></button>
+    </nav>
+  `;
+
+  if (ui.showAddTxn) html += addTxnModalHTML();
+  if (ui.showAddRecurring) html += addRecurringModalHTML();
+
+  document.getElementById("app").innerHTML = html;
+
+  if (ui.tab === "overview") drawCharts(categorySpend, getTrendData(monthK));
+}
+
+function txnItemHTML(t, deletable) {
+  const cat = catById(t.category);
+  const dotColor = t.type === "income" ? "#2E5D45" : (cat ? cat.color : "#4A4A44");
+  return `
+    <div class="txn-item">
+      <span class="txn-dot" style="background:${dotColor}"></span>
+      <div class="txn-main">
+        <div class="txn-note">${esc(t.note || (cat ? cat.name : "Expense"))}</div>
+        <div class="txn-meta">${cat ? esc(cat.name) : ""} · ${t.date.slice(5)}</div>
+      </div>
+      <span class="txn-amount mono ${t.type==='income'?'income':''}">${t.type==='income'?'+':'−'}${fmt(t.amount)}</span>
+      ${deletable ? `<button class="icon-btn" onclick="deleteTransaction('${t.id}')" aria-label="Delete entry">${ICONS.trash}</button>` : ""}
+    </div>`;
+}
+
+function addTxnModalHTML() {
+  const d = ui.txnDraft;
+  const canSubmit = d.amount !== "" && Number(d.amount) > 0;
+  return `
+    <div class="modal-overlay" onclick="closeAddTxn()">
+      <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-head"><span class="modal-title">New entry</span><button class="icon-btn" onclick="closeAddTxn()">${ICONS.x}</button></div>
+        <div class="field">
+          <div class="type-toggle">
+            <button class="${d.type==='expense'?'active expense':''}" onclick="setTxnType('expense')">Expense</button>
+            <button class="${d.type==='income'?'active income':''}" onclick="setTxnType('income')">Income</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Amount</label>
+          <input class="mono" type="number" inputmode="decimal" placeholder="0" value="${d.amount}" oninput="updateTxnField('amount', this.value)" autofocus />
+        </div>
+        ${d.type === "expense" ? `
+          <div class="field">
+            <label>Category</label>
+            <div class="cat-grid">
+              ${data.categories.map(c => `<div class="cat-chip ${d.category===c.id?'active':''}" onclick="setTxnCategory('${c.id}')">${esc(c.name)}</div>`).join("")}
+            </div>
+          </div>
+        ` : ""}
+        <div class="field"><label>Note</label><input type="text" placeholder="Optional" value="${esc(d.note)}" oninput="updateTxnField('note', this.value)" /></div>
+        <div class="field"><label>Date</label><input type="date" value="${d.date}" oninput="updateTxnField('date', this.value)" /></div>
+        <button class="submit-btn" ${canSubmit?'':'disabled'} onclick="submitTxn()">Save entry</button>
+      </div>
+    </div>`;
+}
+
+function addRecurringModalHTML() {
+  const d = ui.recurringDraft;
+  const canSubmit = d.name.trim() !== "" && Number(d.amount) > 0 && Number(d.day) >= 1 && Number(d.day) <= 28;
+  return `
+    <div class="modal-overlay" onclick="closeAddRecurring()">
+      <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-head"><span class="modal-title">New standing order</span><button class="icon-btn" onclick="closeAddRecurring()">${ICONS.x}</button></div>
+        <div class="field"><label>Name</label><input type="text" placeholder="Rent, Netflix, gym…" value="${esc(d.name)}" oninput="updateRecurringField('name', this.value)" autofocus /></div>
+        <div class="field"><label>Amount</label><input class="mono" type="number" inputmode="decimal" placeholder="0" value="${d.amount}" oninput="updateRecurringField('amount', this.value)" /></div>
+        <div class="field">
+          <label>Category</label>
+          <div class="cat-grid">
+            ${data.categories.map(c => `<div class="cat-chip ${d.category===c.id?'active':''}" onclick="setRecurringCategory('${c.id}')">${esc(c.name)}</div>`).join("")}
+          </div>
+        </div>
+        <div class="field"><label>Day of month due (1–28)</label><input type="number" min="1" max="28" value="${d.day}" oninput="updateRecurringField('day', this.value)" /></div>
+        <button class="submit-btn" ${canSubmit?'':'disabled'} onclick="submitRecurring()">Save standing order</button>
+      </div>
+    </div>`;
+}
+
+function drawCharts(categorySpend, trendData) {
+  if (typeof Chart === "undefined") return; // Chart.js failed to load (e.g. offline) — skip charts gracefully
+  if (donutChart) { donutChart.destroy(); donutChart = null; }
+  if (trendChart) { trendChart.destroy(); trendChart = null; }
+
+  const donutEl = document.getElementById("donutCanvas");
+  if (donutEl && categorySpend.length) {
+    donutChart = new Chart(donutEl, {
+      type: "doughnut",
+      data: { labels: categorySpend.map(c=>c.name), datasets: [{ data: categorySpend.map(c=>c.value), backgroundColor: categorySpend.map(c=>c.color), borderWidth: 0 }] },
+      options: { cutout: "62%", plugins: { legend: { display: false }, tooltip: { enabled: false } }, animation: false }
+    });
+  }
+  const trendEl = document.getElementById("trendCanvas");
+  if (trendEl) {
+    trendChart = new Chart(trendEl, {
+      type: "bar",
+      data: { labels: trendData.map(t=>t.month), datasets: [{ data: trendData.map(t=>t.total), backgroundColor: "#2E5D45", borderRadius: 3 }] },
+      options: {
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx)=>fmt(ctx.parsed.y) } } },
+        scales: { y: { display: false }, x: { grid: { display: false }, ticks: { color: "#6B6656", font: { size: 11 } } } },
+        animation: false
+      }
+    });
+  }
+}
+
+/* Note: render() is driven by auth.onAuthStateChanged above — no manual initial call needed.
+   Once Firebase resolves whether you're signed in, it renders either the sign-in screen
+   or the app and subscribes to your cloud data automatically. */
+
+/* Register a minimal service worker for offline app-shell caching (optional, ignored if unsupported) */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
