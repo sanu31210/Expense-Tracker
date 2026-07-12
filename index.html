@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<meta name="google" content="notranslate" />
 <title>Ledger — Expense Tracker</title>
 
 <!-- PWA / Home screen support (Android + iOS) -->
@@ -33,6 +34,8 @@
     --rule: #D3CDB9;
     --forest: #2E5D45;
     --brick: #A63B2E;
+    --forest-soft: #8FBFA0;
+    --brick-soft: #E8A79C;
     --brass: #B08A3E;
     --slate: #6B6656;
   }
@@ -73,9 +76,13 @@
   .month-label { font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(239,237,228,0.75); }
   .hero-label { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(239,237,228,0.6); margin-bottom: 4px; }
   .hero-amount { font-size: 40px; font-weight: 500; line-height: 1; }
-  .hero-amount.neg { color: #E8A79C; }
+  .hero-amount.neg { color: var(--brick-soft); }
   .hero-sub { display: flex; gap: 18px; margin-top: 14px; font-size: 13px; }
   .hero-sub div span:first-child { display: block; color: rgba(239,237,228,0.55); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 2px; }
+  .hero-sub div span:first-child::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+  .hero-sub div.stat-expense span:first-child::before { background: var(--brick-soft); }
+  .hero-sub div.stat-income span:first-child::before { background: var(--forest-soft); }
+  .hero-sub div.stat-neutral span:first-child::before { background: var(--brass); }
   .hero-sub div span:last-child { font-size: 15px; }
 
   .section-title {
@@ -111,7 +118,10 @@
   .txn-meta { font-size: 11px; color: var(--slate); margin-top: 1px; }
   .txn-amount { font-size: 14px; font-weight: 500; white-space: nowrap; }
   .txn-amount.income { color: var(--forest); }
+  .txn-amount.expense { color: var(--brick); }
+  .month-nav button svg { width: 16px; height: 16px; flex-shrink: 0; }
   .icon-btn { background: none; border: none; color: var(--slate); padding: 6px; cursor: pointer; display: flex; }
+  .icon-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
   .icon-btn:active { color: var(--brick); }
 
   .budget-row { margin-bottom: 16px; }
@@ -128,9 +138,10 @@
   .recurring-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
   .recurring-name { font-size: 14px; font-weight: 500; }
   .recurring-due { font-size: 11px; color: var(--slate); margin-top: 2px; }
-  .recurring-amount { font-family: "IBM Plex Mono", monospace; font-size: 15px; font-weight: 500; }
+  .recurring-amount { font-family: "IBM Plex Mono", monospace; font-size: 15px; font-weight: 500; color: var(--brick); }
   .recurring-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
   .btn-paid { font-size: 12px; border: 1px solid var(--forest); color: var(--forest); background: none; border-radius: 3px; padding: 5px 10px; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  .btn-paid svg { width: 13px; height: 13px; flex-shrink: 0; }
   .btn-paid.done { background: var(--forest); color: var(--paper-raised); }
 
   .nav {
@@ -152,6 +163,7 @@
   }
   @media (max-width: 480px) { .fab { right: 18px; } }
   .fab:active { background: #244A38; }
+  .fab svg { width: 24px; height: 24px; flex-shrink: 0; }
 
   .modal-overlay { position: fixed; inset: 0; background: rgba(28,31,26,0.5); display: flex; align-items: flex-end; z-index: 20; }
   .modal {
@@ -209,6 +221,7 @@
     font-size: 11px; color: var(--slate);
   }
   .topbar .link { color: var(--forest); font-weight: 500; cursor: pointer; text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px; }
+  .build-tag { font-size: 10px; color: var(--slate); text-align: right; margin: 6px 0 12px; opacity: 0.7; }
   .sync-note { font-size: 10px; color: var(--slate); text-align: center; padding: 4px 0 0; }
 </style>
 </head>
@@ -224,12 +237,12 @@
    controlled by the Firestore security rules, not by hiding this config.
 ===================================================================== */
 const firebaseConfig = {
-  apiKey: "AIzaSyCi-Ot9bKDEQ339DYdQnfRGl--ZSDpItsk",
-  authDomain: "ledger-app-c192f.firebaseapp.com",
-  projectId: "ledger-app-c192f",
-  storageBucket: "ledger-app-c192f.firebasestorage.app",
-  messagingSenderId: "514451745153",
-  appId: "1:514451745153:web:ac3610af81bd9ef1566080"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID",
 };
 
 firebase.initializeApp(firebaseConfig);
@@ -240,6 +253,11 @@ try { db.enablePersistence({ synchronizeTabs: true }); } catch (e) {}
 let currentUser = null;
 let unsubscribeSnapshot = null;
 let cloudSyncStatus = "idle"; // idle | syncing | synced | error
+
+/* Bump this string every time you deploy a code change — it's shown in the
+   app so you can visually confirm a device has picked up the latest version
+   instead of a stale cached copy. Any format works, e.g. a date or date+letter. */
+const APP_BUILD = "2026-07-12 a";
 
 /* ---------- Data ---------- */
 const STORAGE_KEY = "expense-tracker-ledger-v1";
@@ -260,10 +278,11 @@ let ui = {
   selectedMonth: monthKey(todayISO()),
   showAddTxn: false,
   showAddRecurring: false,
+  editingTxnId: null,
   txnDraft: { type: "expense", amount: "", category: DEFAULT_CATEGORIES[0].id, note: "", date: todayISO() },
   recurringDraft: { name: "", amount: "", category: DEFAULT_CATEGORIES[0].id, day: "1" },
 };
-let donutChart = null, trendChart = null;
+let donutChart = null, trendChart = null, splitChart = null;
 
 function loadLocalCache() {
   try {
@@ -429,38 +448,67 @@ function markRecurringPaid(r) {
 /* ---------- Actions exposed to inline handlers ---------- */
 function setTab(t) { ui.tab = t; render(); }
 function changeMonth(delta) { ui.selectedMonth = shiftMonth(ui.selectedMonth, delta); render(); }
+
 function openAddTxn() {
+  ui.editingTxnId = null;
   ui.txnDraft = { type: "expense", amount: "", category: data.categories[0].id, note: "", date: todayISO() };
   ui.showAddTxn = true; render();
 }
-function closeAddTxn() { ui.showAddTxn = false; render(); }
+function openEditTxn(id) {
+  const t = data.transactions.find(x => x.id === id);
+  if (!t) return;
+  ui.editingTxnId = id;
+  ui.txnDraft = { type: t.type, amount: String(t.amount), category: t.category, note: t.note || "", date: t.date };
+  ui.showAddTxn = true; render();
+}
+function closeAddTxn() { ui.showAddTxn = false; ui.editingTxnId = null; render(); }
 function setTxnType(t) { ui.txnDraft.type = t; render(); }
 function setTxnCategory(c) { ui.txnDraft.category = c; render(); }
-function updateTxnField(field, val) { ui.txnDraft[field] = val; }
+function updateTxnField(field, val) { ui.txnDraft[field] = val; syncTxnSubmitBtn(); }
+function txnCanSubmit() { return ui.txnDraft.amount !== "" && Number(ui.txnDraft.amount) > 0; }
+function syncTxnSubmitBtn() {
+  const btn = document.getElementById("txnSubmitBtn");
+  if (btn) btn.disabled = !txnCanSubmit();
+}
 function submitTxn() {
-  const amt = Number(ui.txnDraft.amount);
-  if (!(amt > 0)) return;
-  addTransaction({
+  if (!txnCanSubmit()) return;
+  const payload = {
     type: ui.txnDraft.type,
-    amount: amt,
+    amount: Number(ui.txnDraft.amount),
     category: ui.txnDraft.type === "expense" ? ui.txnDraft.category : "other",
     note: ui.txnDraft.note.trim(),
     date: ui.txnDraft.date,
-  });
+  };
+  if (ui.editingTxnId) {
+    const idx = data.transactions.findIndex(t => t.id === ui.editingTxnId);
+    if (idx !== -1) data.transactions[idx] = { ...data.transactions[idx], ...payload };
+    pushCloud();
+  } else {
+    addTransaction(payload);
+  }
+  ui.editingTxnId = null;
   ui.showAddTxn = false; render();
 }
+
 function openAddRecurring() {
   ui.recurringDraft = { name: "", amount: "", category: data.categories[0].id, day: "1" };
   ui.showAddRecurring = true; render();
 }
 function closeAddRecurring() { ui.showAddRecurring = false; render(); }
 function setRecurringCategory(c) { ui.recurringDraft.category = c; render(); }
-function updateRecurringField(field, val) { ui.recurringDraft[field] = val; }
+function updateRecurringField(field, val) { ui.recurringDraft[field] = val; syncRecurringSubmitBtn(); }
+function recurringCanSubmit() {
+  const d = ui.recurringDraft;
+  return d.name.trim() !== "" && Number(d.amount) > 0 && Number(d.day) >= 1 && Number(d.day) <= 28;
+}
+function syncRecurringSubmitBtn() {
+  const btn = document.getElementById("recurringSubmitBtn");
+  if (btn) btn.disabled = !recurringCanSubmit();
+}
 function submitRecurring() {
-  const amt = Number(ui.recurringDraft.amount);
-  const day = Number(ui.recurringDraft.day);
-  if (!(ui.recurringDraft.name.trim()) || !(amt > 0) || !(day >= 1 && day <= 28)) return;
-  addRecurring({ name: ui.recurringDraft.name.trim(), amount: amt, category: ui.recurringDraft.category, day });
+  if (!recurringCanSubmit()) return;
+  const d = ui.recurringDraft;
+  addRecurring({ name: d.name.trim(), amount: Number(d.amount), category: d.category, day: Number(d.day) });
   ui.showAddRecurring = false; render();
 }
 
@@ -505,6 +553,7 @@ function render() {
         <span>${esc(currentUser.email || "Signed in")}</span>
         <span class="link" onclick="signOutUser()">Sign out</span>
       </div>
+      <div class="build-tag">Build ${esc(APP_BUILD)}</div>
       <div class="hero">
         <div class="month-nav">
           <button onclick="changeMonth(-1)" aria-label="Previous month">${ICONS.chevronLeft}</button>
@@ -514,16 +563,37 @@ function render() {
         <div class="hero-label">${hasBudgets ? "Safe to spend" : "Spent this month"}</div>
         <div class="hero-amount mono ${hasBudgets && safeToSpend < 0 ? "neg" : ""}">${hasBudgets ? fmt(safeToSpend) : fmt(spent)}</div>
         <div class="hero-sub">
-          <div><span>Spent</span><span class="mono">${fmt(spent)}</span></div>
-          <div><span>Income</span><span class="mono">${fmt(income)}</span></div>
-          ${hasBudgets ? `<div><span>Budgeted</span><span class="mono">${fmt(budgetTotal)}</span></div>` : ""}
+          <div class="stat-expense"><span>Spent</span><span class="mono">${fmt(spent)}</span></div>
+          <div class="stat-income"><span>Income</span><span class="mono">${fmt(income)}</span></div>
+          ${hasBudgets ? `<div class="stat-neutral"><span>Budgeted</span><span class="mono">${fmt(budgetTotal)}</span></div>` : ""}
         </div>
       </div>
       ${syncLabel ? `<div class="sync-note">${syncLabel}</div>` : ""}
   `;
 
   if (ui.tab === "overview") {
+    const splitData = [
+      { name: "Income", value: income, color: "#2E5D45" },
+      { name: "Expense", value: spent, color: "#A63B2E" },
+    ].filter(s => s.value > 0);
+
     html += `
+      ${splitData.length > 0 ? `
+        <div class="section-title">Income vs expense</div>
+        <div class="card">
+          <div class="chart-wrap">
+            <div style="width:90px;height:90px;flex-shrink:0;"><canvas id="splitCanvas"></canvas></div>
+            <div class="legend">
+              ${splitData.map(s => `
+                <div class="legend-item">
+                  <span class="legend-left"><span class="legend-dot" style="background:${s.color}"></span>${s.name}</span>
+                  <span class="mono">${fmt(s.value)}</span>
+                </div>`).join("")}
+            </div>
+          </div>
+        </div>
+      ` : ""}
+
       <div class="section-title">Where it went ${categorySpend.length ? `<span class="link" onclick="setTab('budgets')">Budgets</span>` : ""}</div>
       <div class="card">
         ${categorySpend.length === 0 ? `
@@ -645,31 +715,32 @@ function render() {
 
   document.getElementById("app").innerHTML = html;
 
-  if (ui.tab === "overview") drawCharts(categorySpend, getTrendData(monthK));
+  if (ui.tab === "overview") drawCharts(categorySpend, getTrendData(monthK), income, spent);
 }
 
 function txnItemHTML(t, deletable) {
   const cat = catById(t.category);
   const dotColor = t.type === "income" ? "#2E5D45" : (cat ? cat.color : "#4A4A44");
   return `
-    <div class="txn-item">
+    <div class="txn-item" onclick="openEditTxn('${t.id}')" style="cursor:pointer;">
       <span class="txn-dot" style="background:${dotColor}"></span>
       <div class="txn-main">
         <div class="txn-note">${esc(t.note || (cat ? cat.name : "Expense"))}</div>
         <div class="txn-meta">${cat ? esc(cat.name) : ""} · ${t.date.slice(5)}</div>
       </div>
-      <span class="txn-amount mono ${t.type==='income'?'income':''}">${t.type==='income'?'+':'−'}${fmt(t.amount)}</span>
-      ${deletable ? `<button class="icon-btn" onclick="deleteTransaction('${t.id}')" aria-label="Delete entry">${ICONS.trash}</button>` : ""}
+      <span class="txn-amount mono ${t.type==='income'?'income':'expense'}">${t.type==='income'?'+':'−'}${fmt(t.amount)}</span>
+      ${deletable ? `<button class="icon-btn" onclick="event.stopPropagation(); deleteTransaction('${t.id}')" aria-label="Delete entry">${ICONS.trash}</button>` : ""}
     </div>`;
 }
 
 function addTxnModalHTML() {
   const d = ui.txnDraft;
-  const canSubmit = d.amount !== "" && Number(d.amount) > 0;
+  const canSubmit = txnCanSubmit();
+  const isEditing = !!ui.editingTxnId;
   return `
     <div class="modal-overlay" onclick="closeAddTxn()">
       <div class="modal" onclick="event.stopPropagation()">
-        <div class="modal-head"><span class="modal-title">New entry</span><button class="icon-btn" onclick="closeAddTxn()">${ICONS.x}</button></div>
+        <div class="modal-head"><span class="modal-title">${isEditing ? "Edit entry" : "New entry"}</span><button class="icon-btn" onclick="closeAddTxn()">${ICONS.x}</button></div>
         <div class="field">
           <div class="type-toggle">
             <button class="${d.type==='expense'?'active expense':''}" onclick="setTxnType('expense')">Expense</button>
@@ -690,14 +761,14 @@ function addTxnModalHTML() {
         ` : ""}
         <div class="field"><label>Note</label><input type="text" placeholder="Optional" value="${esc(d.note)}" oninput="updateTxnField('note', this.value)" /></div>
         <div class="field"><label>Date</label><input type="date" value="${d.date}" oninput="updateTxnField('date', this.value)" /></div>
-        <button class="submit-btn" ${canSubmit?'':'disabled'} onclick="submitTxn()">Save entry</button>
+        <button id="txnSubmitBtn" class="submit-btn" ${canSubmit?'':'disabled'} onclick="submitTxn()">${isEditing ? "Save changes" : "Save entry"}</button>
       </div>
     </div>`;
 }
 
 function addRecurringModalHTML() {
   const d = ui.recurringDraft;
-  const canSubmit = d.name.trim() !== "" && Number(d.amount) > 0 && Number(d.day) >= 1 && Number(d.day) <= 28;
+  const canSubmit = recurringCanSubmit();
   return `
     <div class="modal-overlay" onclick="closeAddRecurring()">
       <div class="modal" onclick="event.stopPropagation()">
@@ -711,15 +782,29 @@ function addRecurringModalHTML() {
           </div>
         </div>
         <div class="field"><label>Day of month due (1–28)</label><input type="number" min="1" max="28" value="${d.day}" oninput="updateRecurringField('day', this.value)" /></div>
-        <button class="submit-btn" ${canSubmit?'':'disabled'} onclick="submitRecurring()">Save standing order</button>
+        <button id="recurringSubmitBtn" class="submit-btn" ${canSubmit?'':'disabled'} onclick="submitRecurring()">Save standing order</button>
       </div>
     </div>`;
 }
 
-function drawCharts(categorySpend, trendData) {
+function drawCharts(categorySpend, trendData, income, spent) {
   if (typeof Chart === "undefined") return; // Chart.js failed to load (e.g. offline) — skip charts gracefully
   if (donutChart) { donutChart.destroy(); donutChart = null; }
   if (trendChart) { trendChart.destroy(); trendChart = null; }
+  if (splitChart) { splitChart.destroy(); splitChart = null; }
+
+  const splitEl = document.getElementById("splitCanvas");
+  const splitData = [
+    { name: "Income", value: income, color: "#2E5D45" },
+    { name: "Expense", value: spent, color: "#A63B2E" },
+  ].filter(s => s.value > 0);
+  if (splitEl && splitData.length) {
+    splitChart = new Chart(splitEl, {
+      type: "doughnut",
+      data: { labels: splitData.map(s=>s.name), datasets: [{ data: splitData.map(s=>s.value), backgroundColor: splitData.map(s=>s.color), borderWidth: 0 }] },
+      options: { cutout: "62%", plugins: { legend: { display: false }, tooltip: { enabled: false } }, animation: false }
+    });
+  }
 
   const donutEl = document.getElementById("donutCanvas");
   if (donutEl && categorySpend.length) {
@@ -750,7 +835,9 @@ function drawCharts(categorySpend, trendData) {
 /* Register a minimal service worker for offline app-shell caching (optional, ignored if unsupported) */
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js").catch(() => {});
+    navigator.serviceWorker.register("sw.js").then((reg) => {
+      reg.update(); // check for a newer sw.js every time the page loads
+    }).catch(() => {});
   });
 }
 </script>
