@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -32,11 +33,11 @@
     --ink: #1C1F1A;
     --ink-soft: #4B4A3F;
     --rule: #D3CDB9;
-    --forest: #2E5D45;
-    --brick: #A63B2E;
-    --forest-soft: #8FBFA0;
-    --brick-soft: #E8A79C;
-    --brass: #B08A3E;
+    --forest: #059669;
+    --brick: #DC2626;
+    --forest-soft: #6EE7B7;
+    --brick-soft: #FCA5A5;
+    --brass: #D97706;
     --slate: #6B6656;
   }
   * { box-sizing: border-box; }
@@ -102,6 +103,8 @@
   .row-sub { color: var(--slate); font-size: 12px; }
   .row-leader { flex: 1; min-width: 10px; border-bottom: 2px dotted var(--rule); margin-bottom: 4px; }
   .row-amount { font-size: 14px; font-weight: 500; white-space: nowrap; }
+  .daily-sub { font-size: 11px; color: var(--slate); padding: 0 0 9px; margin-top: -5px; border-bottom: 1px solid var(--rule); }
+  .daily-sub:last-child { border-bottom: none; }
 
   .empty { text-align: center; padding: 32px 16px; color: var(--slate); }
   .empty-title { font-family: "Fraunces", Georgia, serif; font-size: 16px; color: var(--ink); margin-bottom: 4px; }
@@ -216,12 +219,23 @@
   }
   .google-btn:active { background: #E9E6DA; }
   .signin-note { font-size: 11px; color: rgba(239,237,228,0.4); margin-top: 22px; max-width: 280px; line-height: 1.5; }
+  .setup-divider { font-size: 11px; color: rgba(239,237,228,0.45); margin: 18px 0 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .join-code-input {
+    width: 100%; max-width: 280px; text-align: center; letter-spacing: 0.2em; font-size: 18px;
+    border: 1px solid rgba(239,237,228,0.25); background: rgba(239,237,228,0.06); color: var(--paper);
+    border-radius: 4px; padding: 12px; text-transform: uppercase;
+  }
+  .join-code-input::placeholder { color: rgba(239,237,228,0.3); letter-spacing: 0.2em; }
+  .setup-error { font-size: 12px; color: var(--brick-soft); margin-top: 14px; max-width: 280px; line-height: 1.4; }
   .topbar {
     display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;
     font-size: 11px; color: var(--slate);
   }
   .topbar .link { color: var(--forest); font-weight: 500; cursor: pointer; text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px; }
   .build-tag { font-size: 10px; color: var(--slate); text-align: right; margin: 6px 0 12px; opacity: 0.7; }
+  .household-tag { font-size: 11px; color: var(--slate); margin: -6px 0 4px; display: flex; gap: 10px; align-items: baseline; }
+  .household-tag b { color: var(--ink); font-weight: 600; letter-spacing: 0.05em; }
+  .household-tag .link { color: var(--forest); cursor: pointer; font-weight: 500; text-transform: uppercase; font-size: 10px; letter-spacing: 0.03em; }
   .sync-note { font-size: 10px; color: var(--slate); text-align: center; padding: 4px 0 0; }
 </style>
 </head>
@@ -253,23 +267,39 @@ try { db.enablePersistence({ synchronizeTabs: true }); } catch (e) {}
 let currentUser = null;
 let unsubscribeSnapshot = null;
 let cloudSyncStatus = "idle"; // idle | syncing | synced | error
+let householdId = null;
+let householdLoading = true;
+let householdError = "";
+let joinCodeInput = "";
 
 /* Bump this string every time you deploy a code change — it's shown in the
    app so you can visually confirm a device has picked up the latest version
    instead of a stale cached copy. Any format works, e.g. a date or date+letter. */
-const APP_BUILD = "2026-07-12 a";
+const APP_BUILD = "2026-07-21 categories-reports";
 
 /* ---------- Data ---------- */
 const STORAGE_KEY = "expense-tracker-ledger-v1";
 const DEFAULT_CATEGORIES = [
-  { id: "food", name: "Food & Dining", color: "#2E5D45" },
-  { id: "transport", name: "Transport", color: "#3D6B8A" },
-  { id: "housing", name: "Housing", color: "#8A5A2E" },
-  { id: "utilities", name: "Utilities", color: "#6B6656" },
-  { id: "entertainment", name: "Entertainment", color: "#7A3D6B" },
-  { id: "health", name: "Health", color: "#A63B2E" },
-  { id: "shopping", name: "Shopping", color: "#B08A3E" },
-  { id: "other", name: "Other", color: "#4A4A44" },
+  { id: "groceries",     name: "Groceries",              color: "#16A34A" },
+  { id: "food",          name: "Food & Dining",          color: "#F97316" },
+  { id: "transport",     name: "Transport & Fuel",       color: "#0EA5E9" },
+  { id: "rent",          name: "Rent / EMI",             color: "#6366F1" },
+  { id: "utilities",     name: "Utilities & Bills",      color: "#0891B2" },
+  { id: "mobile",        name: "Mobile & Internet",      color: "#3B82F6" },
+  { id: "entertainment", name: "Entertainment & Subs",   color: "#D946EF" },
+  { id: "health",        name: "Health & Medical",       color: "#EF4444" },
+  { id: "insurance",     name: "Insurance",              color: "#10B981" },
+  { id: "education",     name: "Education",              color: "#14B8A6" },
+  { id: "personalcare",  name: "Personal Care",          color: "#A855F7" },
+  { id: "shopping",      name: "Shopping & Clothing",    color: "#F59E0B" },
+  { id: "electronics",   name: "Electronics & Gadgets",  color: "#06B6D4" },
+  { id: "travel",        name: "Travel",                 color: "#8B5CF6" },
+  { id: "gifts",         name: "Gifts & Donations",      color: "#EC4899" },
+  { id: "investments",   name: "Investments & Savings",  color: "#CA8A04" },
+  { id: "family",        name: "Family & Kids",          color: "#EAB308" },
+  { id: "pets",          name: "Pets",                   color: "#84CC16" },
+  { id: "household",     name: "Household & Maintenance",color: "#C2410C" },
+  { id: "other",         name: "Other",                  color: "#64748B" },
 ];
 
 let data = loadLocalCache();
@@ -279,10 +309,11 @@ let ui = {
   showAddTxn: false,
   showAddRecurring: false,
   editingTxnId: null,
+  reportView: "daily", // daily | monthly
   txnDraft: { type: "expense", amount: "", category: DEFAULT_CATEGORIES[0].id, note: "", date: todayISO() },
   recurringDraft: { name: "", amount: "", category: DEFAULT_CATEGORIES[0].id, day: "1" },
 };
-let donutChart = null, trendChart = null, splitChart = null;
+let donutChart = null, trendChart = null, splitChart = null, reportsChart = null;
 
 function loadLocalCache() {
   try {
@@ -296,21 +327,24 @@ function saveLocalCache() {
   catch (e) { console.error("Could not save local cache:", e); }
 }
 
-/* ---------- Cloud sync (Firestore) ---------- */
-function userDocRef() {
-  return db.collection("users").doc(currentUser.uid).collection("ledger").doc("data");
+/* ---------- Cloud sync (Firestore) — now backed by a SHARED household doc ---------- */
+function householdDocRef() {
+  return db.collection("households").doc(householdId);
 }
+function ledgerDocRef() {
+  return householdDocRef().collection("ledger").doc("data");
+}
+
 function subscribeCloud() {
   if (unsubscribeSnapshot) unsubscribeSnapshot();
   cloudSyncStatus = "syncing"; render();
-  unsubscribeSnapshot = userDocRef().onSnapshot(
+  unsubscribeSnapshot = ledgerDocRef().onSnapshot(
     (snap) => {
       if (snap.exists) {
         const d = snap.data();
         data = { categories: DEFAULT_CATEGORIES, transactions: d.transactions || [], budgets: d.budgets || {}, recurring: d.recurring || [] };
       } else {
-        // first sign-in on this account — seed the cloud doc with whatever's on this device already
-        userDocRef().set({ transactions: data.transactions, budgets: data.budgets, recurring: data.recurring }).catch(() => {});
+        ledgerDocRef().set({ transactions: data.transactions, budgets: data.budgets, recurring: data.recurring }).catch(() => {});
       }
       cloudSyncStatus = "synced";
       saveLocalCache();
@@ -326,15 +360,118 @@ function subscribeCloud() {
 let pushTimer = null;
 function pushCloud() {
   saveLocalCache();
-  if (!currentUser) return;
+  if (!currentUser || !householdId) return;
   cloudSyncStatus = "syncing";
   clearTimeout(pushTimer);
   pushTimer = setTimeout(() => {
-    userDocRef()
+    ledgerDocRef()
       .set({ transactions: data.transactions, budgets: data.budgets, recurring: data.recurring })
       .then(() => { cloudSyncStatus = "synced"; render(); })
       .catch((e) => { console.error("Sync error:", e); cloudSyncStatus = "error"; render(); });
   }, 400);
+}
+
+/* ---------- Household (shared ledger) setup ---------- */
+function genHouseholdCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no O/0 or I/1 — avoids ambiguity when read aloud/typed
+  let code = "";
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+async function initUserAndHousehold() {
+  householdLoading = true; render();
+  try {
+    const userSnap = await db.collection("users").doc(currentUser.uid).get();
+    const existingHouseholdId = userSnap.exists ? userSnap.data().householdId : null;
+    if (existingHouseholdId) {
+      householdId = existingHouseholdId;
+      householdLoading = false;
+      subscribeCloud();
+      render();
+    } else {
+      householdLoading = false;
+      render(); // shows the "create or join" screen
+    }
+  } catch (e) {
+    console.error("Could not load profile:", e);
+    householdLoading = false;
+    render();
+  }
+}
+
+async function createHousehold() {
+  if (!currentUser) return;
+  householdError = "";
+  const code = genHouseholdCode();
+  try {
+    // Seed the new shared ledger with whatever's already on this device/account
+    await db.collection("households").doc(code).set({
+      ownerUid: currentUser.uid,
+      memberUids: [currentUser.uid],
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    await db.collection("households").doc(code).collection("ledger").doc("data").set({
+      transactions: data.transactions, budgets: data.budgets, recurring: data.recurring,
+    });
+    await db.collection("users").doc(currentUser.uid).set({ householdId: code }, { merge: true });
+    householdId = code;
+    subscribeCloud();
+    render();
+  } catch (e) {
+    console.error("Could not create shared ledger:", e);
+    householdError = "Something went wrong creating the shared ledger. Please try again.";
+    render();
+  }
+}
+
+async function joinHousehold(rawCode) {
+  if (!currentUser) return;
+  const code = (rawCode || "").trim().toUpperCase();
+  householdError = "";
+  if (!code) { householdError = "Enter the code your partner shared with you."; render(); return; }
+  try {
+    const ref = db.collection("households").doc(code);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      householdError = "That code doesn't match any shared ledger. Double-check it with your partner.";
+      render();
+      return;
+    }
+    await ref.update({
+      memberUids: firebase.firestore.FieldValue.arrayUnion(currentUser.uid),
+    });
+    await db.collection("users").doc(currentUser.uid).set({ householdId: code }, { merge: true });
+    householdId = code;
+    subscribeCloud();
+    render();
+  } catch (e) {
+    console.error("Could not join shared ledger:", e);
+    householdError = "Couldn't join that ledger. Please try again.";
+    render();
+  }
+}
+
+function updateJoinCodeInput(val) { joinCodeInput = val; }
+
+function copyHouseholdCode() {
+  if (!householdId) return;
+  navigator.clipboard?.writeText(householdId).then(
+    () => alert("Code copied: " + householdId),
+    () => alert("Your code is: " + householdId)
+  );
+}
+
+function leaveHousehold() {
+  if (!householdId || !currentUser) return;
+  if (!confirm("Leave this shared ledger? You'll stop seeing its expenses, and can create or join a different one.")) return;
+  const ref = db.collection("households").doc(householdId);
+  ref.update({ memberUids: firebase.firestore.FieldValue.arrayRemove(currentUser.uid) }).catch(() => {});
+  db.collection("users").doc(currentUser.uid).set({ householdId: firebase.firestore.FieldValue.delete() }, { merge: true }).catch(() => {});
+  if (unsubscribeSnapshot) { unsubscribeSnapshot(); unsubscribeSnapshot = null; }
+  householdId = null;
+  data = { categories: DEFAULT_CATEGORIES, transactions: [], budgets: {}, recurring: [] };
+  render();
 }
 
 /* ---------- Auth ---------- */
@@ -351,12 +488,20 @@ function signInGoogle() {
 }
 function signOutUser() {
   if (unsubscribeSnapshot) { unsubscribeSnapshot(); unsubscribeSnapshot = null; }
+  householdId = null;
+  householdError = "";
+  joinCodeInput = "";
   auth.signOut();
 }
 auth.onAuthStateChanged((user) => {
   currentUser = user;
-  if (user) subscribeCloud();
-  render();
+  if (user) {
+    initUserAndHousehold();
+  } else {
+    householdId = null;
+    householdLoading = true;
+    render();
+  }
 });
 
 /* ---------- Helpers ---------- */
@@ -377,6 +522,10 @@ function monthLabel(key) {
 function shortMonthLabel(key) {
   const [y,m] = key.split("-").map(Number);
   return new Date(y, m-1, 1).toLocaleDateString("en-US", { month: "short" });
+}
+function dayLabel(dateStr) {
+  const [y,m,d] = dateStr.split("-").map(Number);
+  return new Date(y, m-1, d).toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short" });
 }
 function shiftMonth(key, delta) {
   const [y,m] = key.split("-").map(Number);
@@ -409,6 +558,7 @@ const ICONS = {
   chevronRight: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>`,
   trash: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6h16Z"/></svg>`,
   check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`,
+  barChart: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10M18 20V4M6 20v-4"/></svg>`,
 };
 
 /* ---------- Derived state ---------- */
@@ -429,6 +579,27 @@ function getTrendData(monthK) {
     return { month: shortMonthLabel(k), total };
   });
 }
+function getDailyReport(monthK) {
+  const map = {}; // date -> { spent, income }
+  getMonthTxns(monthK).forEach(t => {
+    if (!map[t.date]) map[t.date] = { spent: 0, income: 0 };
+    if (t.type === "expense") map[t.date].spent += t.amount;
+    else map[t.date].income += t.amount;
+  });
+  return Object.keys(map)
+    .sort((a,b) => a < b ? 1 : -1)
+    .map(date => ({ date, ...map[date], net: map[date].income - map[date].spent }));
+}
+function getMonthlyReport(n, endKey) {
+  const keys = lastNMonthKeys(n, endKey);
+  return keys.map(k => {
+    const txns = data.transactions.filter(t => monthKey(t.date) === k);
+    const spentM = txns.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
+    const incomeM = txns.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
+    return { key: k, label: monthLabel(k), short: shortMonthLabel(k), spent: spentM, income: incomeM, net: incomeM - spentM };
+  }).reverse(); // most recent first for the list
+}
+function setReportView(v) { ui.reportView = v; render(); }
 function isPaidThisRealMonth(recurringId) {
   const cur = monthKey(todayISO());
   return data.transactions.some(t => t.recurringId === recurringId && monthKey(t.date) === cur);
@@ -518,18 +689,43 @@ function signInScreenHTML() {
     <div class="signin-wrap">
       <div class="signin-mark mono">₹</div>
       <div class="signin-title">Ledger</div>
-      <div class="signin-sub">Sign in to save your expenses to your account and keep them in sync across your phone and other devices.</div>
+      <div class="signin-sub">Sign in to save your expenses and keep them in sync across your devices — and optionally share one ledger with a partner.</div>
       <button class="google-btn" onclick="signInGoogle()">
         <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.6 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.6 15.9 18.9 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.5 0 10.4-1.9 14.3-5.1l-6.6-5.4C29.6 35.4 26.9 36 24 36c-5.3 0-9.7-3.4-11.3-8.1l-6.6 5.1C9.6 39.6 16.3 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.2 5.7l6.6 5.4C40.9 36.6 44 30.9 44 24c0-1.3-.1-2.7-.4-3.5z"/></svg>
         Sign in with Google
       </button>
-      <div class="signin-note">Your data is stored under your own Google account and never shared with anyone else.</div>
+      <div class="signin-note">Only people you explicitly share a ledger code with can ever see your expenses.</div>
+    </div>`;
+}
+
+function householdSetupScreenHTML() {
+  return `
+    <div class="signin-wrap">
+      <div class="signin-mark mono">₹</div>
+      <div class="signin-title">One more step</div>
+      <div class="signin-sub">Start a fresh shared ledger, or join one your partner already created.</div>
+      <button class="google-btn" onclick="createHousehold()">Start a new shared ledger</button>
+      <div class="setup-divider">or join with a code</div>
+      <input class="join-code-input mono" type="text" maxlength="6" placeholder="ABC123"
+        value="${esc(joinCodeInput)}" oninput="updateJoinCodeInput(this.value.toUpperCase())" />
+      <button class="google-btn" style="margin-top:10px;" onclick="joinHousehold(joinCodeInput)">Join shared ledger</button>
+      ${householdError ? `<div class="setup-error">${esc(householdError)}</div>` : ""}
+      <div class="signin-note">Whoever creates the ledger gets a 6-character code — share it with your partner so they can join the same one.</div>
+      <div class="signin-note" style="margin-top:14px;"><span class="link" onclick="signOutUser()" style="color:var(--brass);cursor:pointer;">Sign out</span></div>
     </div>`;
 }
 
 function render() {
   if (!currentUser) {
     document.getElementById("app").innerHTML = signInScreenHTML();
+    return;
+  }
+  if (householdLoading) {
+    document.getElementById("app").innerHTML = `<div class="boot-loading">Loading…</div>`;
+    return;
+  }
+  if (!householdId) {
+    document.getElementById("app").innerHTML = householdSetupScreenHTML();
     return;
   }
 
@@ -553,6 +749,11 @@ function render() {
         <span>${esc(currentUser.email || "Signed in")}</span>
         <span class="link" onclick="signOutUser()">Sign out</span>
       </div>
+      <div class="household-tag">
+        Shared ledger: <b class="mono">${esc(householdId)}</b>
+        <span class="link" onclick="copyHouseholdCode()">Copy</span>
+        <span class="link" onclick="leaveHousehold()">Leave</span>
+      </div>
       <div class="build-tag">Build ${esc(APP_BUILD)}</div>
       <div class="hero">
         <div class="month-nav">
@@ -573,8 +774,8 @@ function render() {
 
   if (ui.tab === "overview") {
     const splitData = [
-      { name: "Income", value: income, color: "#2E5D45" },
-      { name: "Expense", value: spent, color: "#A63B2E" },
+      { name: "Income", value: income, color: "#059669" },
+      { name: "Expense", value: spent, color: "#DC2626" },
     ].filter(s => s.value > 0);
 
     html += `
@@ -696,6 +897,48 @@ function render() {
           </div>`;
       }).join("")}
     `;
+  } else if (ui.tab === "reports") {
+    const dailyRows = getDailyReport(monthK);
+    const monthlyRows = getMonthlyReport(12, monthK);
+    html += `
+      <div class="section-title">Reports</div>
+      <div class="type-toggle" style="margin-bottom:16px;">
+        <button class="${ui.reportView==='daily'?'active expense':''}" onclick="setReportView('daily')">Daily</button>
+        <button class="${ui.reportView==='monthly'?'active income':''}" onclick="setReportView('monthly')">Monthly</button>
+      </div>
+    `;
+    if (ui.reportView === "daily") {
+      html += `
+        <div class="section-title">${esc(monthLabel(monthK))} — day by day</div>
+        <div class="card">
+          ${dailyRows.length === 0 ? `
+            <div class="empty"><div class="empty-title">No entries this month</div><p>Daily totals will show up here as you log expenses.</p></div>
+          ` : dailyRows.map(d => `
+            <div class="row">
+              <span class="row-label">${dayLabel(d.date)}</span>
+              <span class="row-leader"></span>
+              <span class="row-amount mono" style="color:${d.net < 0 ? 'var(--brick)' : 'var(--forest)'}">${d.net < 0 ? '−' : '+'}${fmt(Math.abs(d.net))}</span>
+            </div>
+            <div class="daily-sub">Spent ${fmt(d.spent)} · Income ${fmt(d.income)}</div>
+          `).join("")}
+        </div>
+      `;
+    } else {
+      html += `
+        <div class="section-title">Last 12 months</div>
+        <div class="card"><div style="width:100%;height:140px;"><canvas id="reportsTrendCanvas"></canvas></div></div>
+        <div class="card">
+          ${monthlyRows.map(m => `
+            <div class="row">
+              <span class="row-label">${esc(m.label)}</span>
+              <span class="row-leader"></span>
+              <span class="row-amount mono" style="color:${m.net < 0 ? 'var(--brick)' : 'var(--forest)'}">${m.net < 0 ? '−' : '+'}${fmt(Math.abs(m.net))}</span>
+            </div>
+            <div class="daily-sub">Spent ${fmt(m.spent)} · Income ${fmt(m.income)}</div>
+          `).join("")}
+        </div>
+      `;
+    }
   }
 
   html += `</div>
@@ -705,6 +948,7 @@ function render() {
     <nav class="nav">
       <button class="nav-btn ${ui.tab==='overview'?'active':''}" onclick="setTab('overview')">${ICONS.wallet}<span>Overview</span></button>
       <button class="nav-btn ${ui.tab==='transactions'?'active':''}" onclick="setTab('transactions')">${ICONS.receipt}<span>Ledger</span></button>
+      <button class="nav-btn ${ui.tab==='reports'?'active':''}" onclick="setTab('reports')">${ICONS.barChart}<span>Reports</span></button>
       <button class="nav-btn ${ui.tab==='budgets'?'active':''}" onclick="setTab('budgets')">${ICONS.pie}<span>Budgets</span></button>
       <button class="nav-btn ${ui.tab==='recurring'?'active':''}" onclick="setTab('recurring')">${ICONS.repeat}<span>Recurring</span></button>
     </nav>
@@ -716,11 +960,12 @@ function render() {
   document.getElementById("app").innerHTML = html;
 
   if (ui.tab === "overview") drawCharts(categorySpend, getTrendData(monthK), income, spent);
+  if (ui.tab === "reports" && ui.reportView === "monthly") drawReportsChart(getMonthlyReport(12, monthK));
 }
 
 function txnItemHTML(t, deletable) {
   const cat = catById(t.category);
-  const dotColor = t.type === "income" ? "#2E5D45" : (cat ? cat.color : "#4A4A44");
+  const dotColor = t.type === "income" ? "#059669" : (cat ? cat.color : "#4A4A44");
   return `
     <div class="txn-item" onclick="openEditTxn('${t.id}')" style="cursor:pointer;">
       <span class="txn-dot" style="background:${dotColor}"></span>
@@ -795,8 +1040,8 @@ function drawCharts(categorySpend, trendData, income, spent) {
 
   const splitEl = document.getElementById("splitCanvas");
   const splitData = [
-    { name: "Income", value: income, color: "#2E5D45" },
-    { name: "Expense", value: spent, color: "#A63B2E" },
+    { name: "Income", value: income, color: "#059669" },
+    { name: "Expense", value: spent, color: "#DC2626" },
   ].filter(s => s.value > 0);
   if (splitEl && splitData.length) {
     splitChart = new Chart(splitEl, {
@@ -818,7 +1063,7 @@ function drawCharts(categorySpend, trendData, income, spent) {
   if (trendEl) {
     trendChart = new Chart(trendEl, {
       type: "bar",
-      data: { labels: trendData.map(t=>t.month), datasets: [{ data: trendData.map(t=>t.total), backgroundColor: "#2E5D45", borderRadius: 3 }] },
+      data: { labels: trendData.map(t=>t.month), datasets: [{ data: trendData.map(t=>t.total), backgroundColor: "#DC2626", borderRadius: 3 }] },
       options: {
         plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx)=>fmt(ctx.parsed.y) } } },
         scales: { y: { display: false }, x: { grid: { display: false }, ticks: { color: "#6B6656", font: { size: 11 } } } },
@@ -826,6 +1071,35 @@ function drawCharts(categorySpend, trendData, income, spent) {
       }
     });
   }
+}
+
+function drawReportsChart(monthlyRows) {
+  if (typeof Chart === "undefined") return;
+  if (reportsChart) { reportsChart.destroy(); reportsChart = null; }
+  const el = document.getElementById("reportsTrendCanvas");
+  if (!el) return;
+  const rows = [...monthlyRows].reverse(); // oldest to newest, left to right
+  reportsChart = new Chart(el, {
+    type: "bar",
+    data: {
+      labels: rows.map(r => r.short),
+      datasets: [
+        { label: "Income", data: rows.map(r => r.income), backgroundColor: "#059669", borderRadius: 3 },
+        { label: "Expense", data: rows.map(r => r.spent), backgroundColor: "#DC2626", borderRadius: 3 },
+      ],
+    },
+    options: {
+      plugins: {
+        legend: { display: true, position: "top", labels: { boxWidth: 8, font: { size: 11 }, color: "#4B4A3F" } },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` } },
+      },
+      scales: {
+        y: { display: false },
+        x: { grid: { display: false }, ticks: { color: "#6B6656", font: { size: 10 } } },
+      },
+      animation: false,
+    },
+  });
 }
 
 /* Note: render() is driven by auth.onAuthStateChanged above — no manual initial call needed.
